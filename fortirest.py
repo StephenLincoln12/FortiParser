@@ -13,10 +13,13 @@ import pandas as pd
 import socket
 import code
 
+#TODO: Error handling, clean up comments/code, clean up comments/code again, 
+#      speed up results processing, auditing functions, search functions, frontend
+
 class FortiParser:
     """
-    Class with functions to connect and parse data from firewalls into JSON
-    and nested Python dictionaries.
+    Class with functions to connect and parse data from firewalls into pandas
+    DataFrames
 
     Must specify a config file to read from, one [section] for each firewall.
     The section name is used as the top level key in the results dictionary,
@@ -269,26 +272,12 @@ class FortiParser:
             self.address_groups = self.process_results(results, firewall_name, vdom, self.address_groups, self.address_group_fields) 
 
     def get_addresses(self, fgt, firewall_name, vdom='all', count='-1'):
-        """Gets all the addresses and address groups from a firewall
-        Puts info into a dataframe, columns as such:
-           'firewall',
-           'vdom',
-           'associated-interface',
-           'comment',
-           'fqdn',
-           'name',
-           'q_origin_key',
-           'subnet',   #str
-           'start-ip', #int
-           'end-ip',   #int
-           'type',
-           'url',
-           'visibility',
-           'wildcard'
+        """Gets all the addresses and address groups from a firewall and adds
+        to the dataframe self.addresses
 
         Args:
         fgt -- REST API connection object to a firewall
-
+        firewall_name -- string of name of firewall AKA section in config
         Default Args:
         vdom -- string, vdom to get address object from (default all)
         count -- string, number of results to return, -1 for all (default -1)
@@ -314,14 +303,12 @@ class FortiParser:
             self.addresses = self.process_results(results, firewall_name, vdom, self.addresses, self.address_fields) 
 
     def get_routing_tables(self, fgt, firewall_name, vdom='all', count='-1'):
-        """Gets the routing table from a firewall Returns two dictionaries
-        1) dict of vdom to interface names + subnets, or default Fortinet REST API
-           output of routing table info if trim=False
-        2) dict of vdoms and list of outside interface names, or None if trim=False
-
+        """Gets the routing table from a firewall and convert and converts the 
+        ip_mask into a start-ip and end-ip of longints
+        puts data into self.routing_tables
         Args:
         fgt -- REST API connection object to a firewall
-
+        firewall_name -- string of firewall name
         Default Args:
         firewall -- String. The firewall to parse the routing table from. If its
                 'all', it will parse through all firewalls in the config file.
@@ -329,13 +316,6 @@ class FortiParser:
         vdom -- String. The VDOM to return the routing table for. If its 'all', it will
                 return anything the account has access to (default all)
         count -- String. The number of results to return, set to '-1' for all (default '-1')
-        trim -- Boolean. If True, will trim the returned JSON object down to
-                {vdom1: [{interface: name1, subnet: 1.1.1.1/24}
-                         {interface: name2, subnet: 1.1.1.2/24}]
-                 vdom2: ......
-                }
-                else it will return the default output from the REST API (default True)
-        H
         """
         parameters = {}
         if isinstance(count, int):
@@ -361,11 +341,12 @@ class FortiParser:
 
 
     def get_policies(self, fgt, firewall_name, vdom='all', count='-1'):
-        """Gets policies from a firewall
-        returns dict of policies
-            {vdom: {srcintf1: {dstintf1: {policy_order_number: {policy info}}}}}
+        """Gets policies from a firewall, maintains the order by adding an
+        'order' column into the self.policies dataframe
+
         Args:
         fgt - REST API connection to firewall
+        firewall_name -- string of name of the firewall
         Default Args:
         vdom - VDOMS to pull policies from (default 'all')
         count - count of policies to pull, -1 for all (default '-1-')
@@ -392,14 +373,13 @@ class FortiParser:
 
 
     def get_service_groups(self, fgt, firewall_name, vdom='all', count='-1'):
-        """Parses services and service groups from a firewall
-        Returns dict of all services and services groups. Key for info about
-        each service/group is the q_origin_key
-
+        """Parses service groups from a firewall
+        members column is reduced from dictionary of names and q_origin_keys
+        to just list of q_origin_keys
 
         Args:
         fgt -- Connection object to a firewall
-
+        firewall_name -- string of name of firewall
         Default Args:
         vdom -- string, VDOM to grab services from, or all for all vdoms (default 'all')
         count -- string, number of services to return, -1 for all (default -1)
@@ -427,13 +407,11 @@ class FortiParser:
 
 
     def get_services(self, fgt, firewall_name, vdom='all', count='-1'):
-        """Parses services and service groups from a firewall
-        Returns dict of all services and services groups. Key for info about
-        each service/group is the q_origin_key
-
+        """Parses services from a firewall
 
         Args:
         fgt -- Connection object to a firewall
+        firewall_name -- string of name of firewall
 
         Default Args:
         vdom -- string, VDOM to grab services from, or all for all vdoms (default 'all')
@@ -561,6 +539,8 @@ class FortiParser:
                     result = new_result
 
             # Finally, add the result to the dataframe
+            # TODO the append function creates a copy of the dataframe, this is slow
+            # I should just create a list of dicts to insert instead
             df = df.append(result, ignore_index=True)
         return df
 
@@ -583,7 +563,7 @@ class FortiParser:
 
 
     def parse_all(self, firewall='all'):
-        """Parses everything we can from firewalls. 
+        """Parses everything we can from firewalls.
         Args:
         firewall -- firewall (section) to parse. If 'all', will parse all sections
         in the config file

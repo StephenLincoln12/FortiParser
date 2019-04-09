@@ -100,6 +100,7 @@ class FortiParser:
                                   'natip',
                                   'policyid',
                                   'order',
+                                  'service',
                                   'srcaddr', # List of q_origin_keys
                                   'srcintf',
                                   'status']
@@ -474,7 +475,8 @@ class FortiParser:
             # Check for FQDN and perform a DNS lookup for it if it exists
             if 'fqdn' in fields:
                 if result['fqdn'] != '' or result['fqdn'] != None:
-                    result['dns-lookup'] = self.dnslookup(result['fqdn'])
+                    #result['dns-lookup'] = self.dnslookup(result['fqdn'])
+                    result['dns-lookup'] = None # TODO Remove, here for testing
                 else:
                     result['dns-lookup'] = None
             # Check for subnet fields and convert start and end into long ints
@@ -486,8 +488,14 @@ class FortiParser:
             # Now lets handle more specific edge cases
             # Handle policies
             if result_type == 'policies':
+                # TODO Handle policies with multiple src/dstintfs
                 srcintf = result['srcintf'][0]['name']
                 dstintf = result['dstintf'][0]['name']
+                result['dstaddr'] = tuple([x['q_origin_key'] for x in result['dstaddr']])
+                result['srcaddr'] = tuple([x['q_origin_key'] for x in result['srcaddr']])
+                result['srcintf'] = [x['q_origin_key'] for x in result['srcintf']][0]
+                result['dstintf'] = [x['q_origin_key'] for x in result['dstintf']][0]
+                result['service'] = tuple([x['q_origin_key'] for x in result['service']])
                 if srcintf not in policy_tracker.keys():
                     policy_tracker[srcintf] = {}
                 if dstintf not in policy_tracker[srcintf].keys():
@@ -585,6 +593,6 @@ def main():
     c = "/etc/fortinet/config.conf"
     F = FortiParser(config_file=c)
     F.parse_all()
-    code.interact(local=locals()) 
+    code.interact(local=locals())
 if __name__ == "__main__":
     main()

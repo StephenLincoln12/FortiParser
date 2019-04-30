@@ -92,6 +92,7 @@ class FortiParser:
                                          'metric']
             self.policy_fields = ['firewall',
                                   'vdom',
+                                  'action',
                                   'comments',
                                   'dstaddr',
                                   'dstintf',
@@ -100,6 +101,7 @@ class FortiParser:
                                   'natip',
                                   'policyid',
                                   'order',
+                                  'service',
                                   'srcaddr', # List of q_origin_keys
                                   'srcintf',
                                   'status']
@@ -128,6 +130,8 @@ class FortiParser:
                                          'name',
                                          'q_origin_key']
             self.config_file = config_file
+
+        self.dataframe_names = ['routing_tables', 'policies', 'addresses', 'address_groups', 'services', 'service_groups']
         #TODO create DataFrames with custom field arg
         self.routing_tables = pd.DataFrame(columns=self.routing_table_fields) # What subnets belong to what interface
         self.policies = pd.DataFrame(columns=self.policy_fields) # All the policies
@@ -474,7 +478,8 @@ class FortiParser:
             # Check for FQDN and perform a DNS lookup for it if it exists
             if 'fqdn' in fields:
                 if result['fqdn'] != '' or result['fqdn'] != None:
-                    result['dns-lookup'] = self.dnslookup(result['fqdn'])
+                    #result['dns-lookup'] = self.dnslookup(result['fqdn'])
+                    result['dns-lookup'] = None # TODO Remove, here for testing
                 else:
                     result['dns-lookup'] = None
             # Check for subnet fields and convert start and end into long ints
@@ -486,8 +491,14 @@ class FortiParser:
             # Now lets handle more specific edge cases
             # Handle policies
             if result_type == 'policies':
+                # TODO Handle policies with multiple src/dstintfs
                 srcintf = result['srcintf'][0]['name']
                 dstintf = result['dstintf'][0]['name']
+                result['dstaddr'] = tuple([x['q_origin_key'] for x in result['dstaddr']])
+                result['srcaddr'] = tuple([x['q_origin_key'] for x in result['srcaddr']])
+                result['srcintf'] = [x['q_origin_key'] for x in result['srcintf']][0]
+                result['dstintf'] = [x['q_origin_key'] for x in result['dstintf']][0]
+                result['service'] = tuple([x['q_origin_key'] for x in result['service']])
                 if srcintf not in policy_tracker.keys():
                     policy_tracker[srcintf] = {}
                 if dstintf not in policy_tracker[srcintf].keys():
@@ -585,6 +596,6 @@ def main():
     c = "/etc/fortinet/config.conf"
     F = FortiParser(config_file=c)
     F.parse_all()
-    code.interact(local=locals()) 
+    code.interact(local=locals())
 if __name__ == "__main__":
     main()

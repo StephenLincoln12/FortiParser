@@ -5,7 +5,7 @@ import ipaddress
 import re
 from pprint import pprint
 import socket   
-import pandas
+import pandas as pd
 import sys
 import gc
 
@@ -19,16 +19,73 @@ def dnslookup(fqdn):
         return None
 
 
-def audit_policies(F):
-    """Goes through policies
-    For each srctinf->dstintf:
-        For each policy (top down):
-            check for allow all to everything (red flag), excpt to outside?
-            check for allow all services (warn)
-            get src addresses (cidr) and dst addresses (cidr)
-            get ports open/closed
-            for p in policies[i+1:]:
+
+def suggest_groups(policy_groups):
+    """Goes through each policy and suggests if policies can be grouped
+    together based on srcaddr's and services
+    I.E: These 5 policies have the same dstaddr and allow SSH from the world,
+    you should just create a SSH group and add them to it to reduce number of policies
     """
+    #for group in policy_groups:
+    fwname = ""
+    vdom = ""
+    for name, group in policy_groups:
+        if name[0] != fwname:
+            fwname = name[0]
+            print "Firewall: {}".format(fwname)
+        if name[1] != vdom:
+            vdom = name[1]
+            print "\tVDOM: {}".format(vdom)
+        service_groups = group.groupby(['srcaddr', 'service', 'action'])
+        for sname, sgroup in service_groups:
+            if len(sgroup) >= 3:
+                print "\t\t{} ---> {} - {}".format(name[2], name[3], sname[1])
+                for ri, r in sgroup.iterrows():
+                    print "\t\t\t{} {} {}".format(r['srcaddr'], r['dstaddr'], r['service'])
+
+def find_allow_alls(F):
+    """Finds allow-all policies in the firewall
+    An 'Allow All' rule is defined by the following:
+        The policy is enabled
+        All services are allowed
+        No source address is specified ('all')
+        Any destination address can be specified
+        The dest interface is not an 'outside' interface
+    """
+    # First, get a list of inside and outside interfaces (firewall, vdom, and interface)
+    inside_interfaces = F.routing_tables.loc[F.routing_tables['outside_interface'] == False, ['firewall', 'vdom', 'interface']]
+    outside_interfaces = F.routing_tables.loc[F.routing_tables['outside_interface'] == True, ['firewall', 'vdom', 'interface']]
+
+    # Find allow alls
+    allow_alls = F.policies.loc[(F.policies['status'] == 'enable') & \
+                                (F.policies['action'].str.lower() == 'accept') & \
+                                (F.policies['service'].apply(lambda x: 'all' in [x.lower() for x in x])) & \
+                                (F.policies['srcaddr'].apply(lambda x: 'all' in [x.lower() for x in x]))]
+
+    # Merge allow alls and the outside interfaces
+    new = pd.merge(inside_interfaces, allow_alls, how='inner', left_on=['firewall', 'vdom', 'interface'], right_on=['firewall', 'vdom', 'dstintf'])
+    
+    new = new[['firewall','vdom','srcintf','dstintf','dstaddr','action','service','policyid','order','status']].drop_duplicates()
+
+
+    new = pd.merge(outside_interfaces, new, how='inner', left_on=['firewall', 'vdom', 'interface'], right_on=['firewall', 'vdom', 'srcintf'])
+
+
+    new = new[['firewall','vdom','srcintf','dstintf','dstaddr','action','service','policyid','order','status']].drop_duplicates().reset_index(drop=True)
+    
+    new.to_csv('allow_alls.csv')
+    #pprint(allow_alls)
+def audit_policies(F):
+    """Goes through policies and checks for overlapping policies or policies that
+    cancel each other out (a deny above an allow, an allow below a deny, etc)
+
+    1) Group policies by firewall, vdom, srcintf, dstintf
+    2)
+    """
+    # Group
+    policy_groups = F.policies.sort_values(['firewall', 'vdom', 'srcintf', 'dstintf'],ascending=True).groupby(['firewall', 'vdom', 'srcintf', 'dstintf'])
+    suggest_groups(policy_groups)
+
 def search_addresses(F, object_name, firewall=None, vdom=None):
     """Searches address and address group DataFrames to find any object matching
     object_name. Returns array of dicts of results, or None if it couldn't find
@@ -108,7 +165,7 @@ def search_routing_tables(F, firewall=None, vdom=None, ip=None, name=None, case_
                 ip += unicode('/32')
         
         # Do the lookup in the routing tables
-        ipn = IPv4Network(ip)
+        ipn = ipaddress.IPv4Network(ip)
         ips = [{'start': int(ipn[0]),
                 'end': int(ipn[-1]),
                 'name': ip}]
@@ -138,18 +195,33 @@ def get_obj_size(obj):
     return sz
 
 def main():
+    # Check for basic load arg, can be anything
+    try:
+        load = sys.argv[1]
+    except:
+        load = None
+
+    # Set config path, create instance of the Fortiparser class
     c = "/etc/fortinet/config.conf"
     F = fortirest.FortiParser(config_file=c)
+
+    # Read config file
     scp = ConfigParser.SafeConfigParser()
     scp.read(c)
-    for fwname in scp.sections():
-        conn = F.connect(section="OPS") 
-        F.get_addresses(conn, "OPS")
-        F.get_routing_tables(conn, fwname)
-        F.disconnect(conn)
-        break
-    print search_routing_tables(F, name='ARCWEB01.UITS.UCONN.EDU')
-    code.interact(local=locals())
+
+    # If we don't want to load a previous instance, create a new one and save it
+    if not load:
+        for fwname in scp.sections():
+            F.parse_all()
+        for name in F.dataframe_names:
+            tmp = getattr(F, name)
+            tmp.to_pickle(name+'.pkl')
+
+    # Else, load it from files - less time than re-creating
+    else:
+        for name in F.dataframe_names:
+            setattr(F,name,pd.read_pickle(name+'.pkl'))
+    code.interact(local=dict(globals(), **locals())) 
 if __name__ == "__main__":
 
     main()

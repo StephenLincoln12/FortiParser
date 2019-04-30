@@ -92,6 +92,7 @@ class FortiParser:
                                          'metric']
             self.policy_fields = ['firewall',
                                   'vdom',
+                                  'action',
                                   'comments',
                                   'dstaddr',
                                   'dstintf',
@@ -129,6 +130,8 @@ class FortiParser:
                                          'name',
                                          'q_origin_key']
             self.config_file = config_file
+
+        self.dataframe_names = ['routing_tables', 'policies', 'addresses', 'address_groups', 'services', 'service_groups']
         #TODO create DataFrames with custom field arg
         self.routing_tables = pd.DataFrame(columns=self.routing_table_fields) # What subnets belong to what interface
         self.policies = pd.DataFrame(columns=self.policy_fields) # All the policies

@@ -5,7 +5,9 @@ or audit policies so I did this
 
 ## Requirements
 **Python 2.7** - Yes, I know its EOL soon. Yes, I'll port it to 3
+
 [**ftntlib**:](https://github.com/jpforcioli/ftntlib) - Wrapper for the Fortinet REST API
+
 [**pandas**:](https://pandas.pydata.org/) - Data structure for holding all the firewall(s) data
 
 
